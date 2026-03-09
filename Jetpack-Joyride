@@ -1,0 +1,307 @@
+#include "raylib.h"
+#include <vector>
+#include <cmath>
+
+using namespace std;
+
+enum GameState { MENU, GAMEPLAY, GAMEOVER };
+
+struct Player {
+    float x, y;
+    float width, height;
+    float velocity;
+    bool isThrusting;
+    bool onGround;
+};
+
+struct Zapper {
+    float x, y;
+    float width, height;
+    bool passed;
+};
+
+struct Coin {
+    float x, y;
+    float radius;
+    bool collected;
+};
+
+int main() {
+    const int screenWidth = 800;
+    const int screenHeight = 600;
+    InitWindow(screenWidth, screenHeight, "Jetpack Joyride");
+
+    GameState currentState = MENU;
+
+    const float GRAVITY = 1500.0f;
+    const float THRUST_POWER = 3200.0f;
+    const float MAX_VELOCITY = 800.0f;
+    const float GAME_SPEED = 350.0f;
+    const float FLOOR_HEIGHT = 50.0f;
+
+    Player player;
+    vector<Zapper> zappers;
+    vector<Coin> coins;
+    int score = 0;
+    int highScore = 0;
+    float zapperSpawnTimer = 0.0f;
+    float coinSpawnTimer = 0.0f;
+    float bgScrollOffset = 0.0f;
+
+    bool isPaused = false;
+
+    SetTargetFPS(60);
+
+    auto ResetGame = [&]() {
+        player.width = 24.0f;
+        player.height = 48.0f;
+        player.x = 150.0f;
+        player.y = screenHeight - FLOOR_HEIGHT - player.height;
+        player.velocity = 0.0f;
+        player.isThrusting = false;
+        player.onGround = true;
+
+        zappers.clear();
+        coins.clear();
+        score = 0;
+        zapperSpawnTimer = 1.0f;
+        coinSpawnTimer = 0.5f;
+        bgScrollOffset = 0.0f;
+        isPaused = false;
+
+        currentState = GAMEPLAY;
+        };
+
+    while (!WindowShouldClose()) {
+        float deltaTime = GetFrameTime();
+        float timeTotal = (float)GetTime();
+
+        if (currentState == MENU) {
+            if (IsKeyPressed(KEY_SPACE) || IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
+                ResetGame();
+            }
+        }
+        else if (currentState == GAMEPLAY) {
+            if (IsKeyPressed(KEY_P)) isPaused = !isPaused;
+
+            if (!isPaused) {
+                bgScrollOffset -= GAME_SPEED * deltaTime * 0.3f;
+                if (bgScrollOffset <= -200.0f) bgScrollOffset += 200.0f;
+
+                player.isThrusting = IsKeyDown(KEY_SPACE) || IsMouseButtonDown(MOUSE_LEFT_BUTTON);
+
+                if (player.isThrusting) player.velocity -= THRUST_POWER * deltaTime;
+                player.velocity += GRAVITY * deltaTime;
+
+                if (player.velocity > MAX_VELOCITY) player.velocity = MAX_VELOCITY;
+                if (player.velocity < -MAX_VELOCITY) player.velocity = -MAX_VELOCITY;
+
+                player.y += player.velocity * deltaTime;
+
+                if (player.y + player.height >= screenHeight - FLOOR_HEIGHT) {
+                    player.y = screenHeight - FLOOR_HEIGHT - player.height;
+                    player.velocity = 0.0f;
+                    player.onGround = true;
+                }
+                else {
+                    player.onGround = false;
+                }
+
+                if (player.y <= 0) {
+                    player.y = 0;
+                    player.velocity = 0.0f;
+                }
+
+                zapperSpawnTimer -= deltaTime;
+                if (zapperSpawnTimer <= 0.0f) {
+                    float zWidth = 30.0f;
+                    float zHeight = (float)GetRandomValue(150, 280);
+                    float zY = (float)GetRandomValue(10, screenHeight - FLOOR_HEIGHT - zHeight - 10);
+                    zappers.push_back({ screenWidth + 50.0f, zY, zWidth, zHeight, false });
+                    zapperSpawnTimer = (float)GetRandomValue(15, 25) / 10.0f;
+                }
+
+                coinSpawnTimer -= deltaTime;
+                if (coinSpawnTimer <= 0.0f) {
+                    float cRadius = 15.0f;
+                    float cY = (float)GetRandomValue(40, screenHeight - FLOOR_HEIGHT - 40);
+                    coins.push_back({ screenWidth + 30.0f, cY, cRadius, false });
+                    coinSpawnTimer = (float)GetRandomValue(5, 12) / 10.0f;
+                }
+
+                Rectangle playerRec = { player.x - 5, player.y, player.width + 10, player.height };
+
+                for (auto it = zappers.begin(); it != zappers.end(); ) {
+                    it->x -= GAME_SPEED * deltaTime;
+
+                    if (!it->passed && player.x > it->x + it->width) {
+                        score += 1;
+                        if (score > highScore) highScore = score;
+                        it->passed = true;
+                    }
+
+                    Rectangle zapRec = { it->x, it->y, it->width, it->height };
+                    if (CheckCollisionRecs(playerRec, zapRec)) currentState = GAMEOVER;
+
+                    if (it->x + it->width < 0) it = zappers.erase(it);
+                    else ++it;
+                }
+
+                for (auto it = coins.begin(); it != coins.end(); ) {
+                    it->x -= GAME_SPEED * deltaTime;
+
+                    if (!it->collected && CheckCollisionCircleRec(Vector2{ it->x, it->y }, it->radius, playerRec)) {
+                        score += 5;
+                        if (score > highScore) highScore = score;
+                        it->collected = true;
+                    }
+
+                    if (it->x + it->radius * 2 < 0 || it->collected) it = coins.erase(it);
+                    else ++it;
+                }
+            }
+        }
+        else if (currentState == GAMEOVER) {
+            if (IsKeyPressed(KEY_SPACE) || IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
+                currentState = MENU;
+            }
+        }
+
+        BeginDrawing();
+        ClearBackground(Color{ 25, 30, 45, 255 });
+
+        for (int i = 0; i <= screenWidth / 200 + 1; i++) {
+            float colX = bgScrollOffset + i * 200.0f;
+            DrawRectangle((int)colX, 0, 60, screenHeight - FLOOR_HEIGHT, Color{ 40, 45, 65, 255 });
+            DrawRectangleLines((int)colX, 0, 60, screenHeight - FLOOR_HEIGHT, Color{ 50, 55, 75, 255 });
+        }
+
+        DrawRectangle(0, screenHeight - FLOOR_HEIGHT, screenWidth, FLOOR_HEIGHT, Color{ 60, 65, 75, 255 });
+        DrawRectangle(0, screenHeight - FLOOR_HEIGHT, screenWidth, 8, DARKGRAY);
+
+        if (currentState == MENU) {
+            DrawText("JETPACK JOYRIDE",
+                screenWidth / 2 - MeasureText("JETPACK JOYRIDE", 50) / 2,
+                150, 50, ORANGE);
+
+            DrawText("HOLD SPACE to Fly",
+                screenWidth / 2 - MeasureText("HOLD SPACE to Fly", 20) / 2,
+                350, 20, LIGHTGRAY);
+        }
+        else {
+            float flicker = sinf(timeTotal * 40.0f) * 3.0f;
+
+            for (const auto& zap : zappers) {
+                DrawCircle((int)(zap.x + zap.width / 2), (int)zap.y, zap.width / 2, GRAY);
+                DrawCircle((int)(zap.x + zap.width / 2), (int)(zap.y + zap.height), zap.width / 2, GRAY);
+                DrawRectangle((int)(zap.x + 5), (int)zap.y, (int)(zap.width - 10), (int)zap.height, Color{ 255, 50, 50, 150 });
+                DrawRectangle((int)(zap.x + 10 - flicker), (int)zap.y, (int)(zap.width - 20 + flicker * 2), (int)zap.height, Color{ 255, 200, 50, 255 });
+                DrawRectangle((int)(zap.x + 12), (int)zap.y, (int)(zap.width - 24), (int)zap.height, WHITE);
+            }
+
+            for (const auto& c : coins) {
+                float pulse = sinf(timeTotal * 5.0f) * 2.0f;
+                DrawCircle((int)c.x, (int)c.y, c.radius + pulse, Fade(YELLOW, 0.4f));
+                DrawCircle((int)c.x, (int)c.y, c.radius, GOLD);
+                DrawCircle((int)(c.x - 4), (int)(c.y - 4), c.radius * 0.3f, WHITE);
+                DrawCircleLines((int)c.x, (int)c.y, c.radius, ORANGE);
+            }
+
+            float animTime = isPaused ? 0.0f : timeTotal;
+            float runSpeed = 16.0f;
+            float t1 = animTime * runSpeed;
+            float t2 = animTime * runSpeed + 3.14159f;
+
+            float bodyBob = player.onGround ? fabsf(sinf(t1)) * 3.0f : 0.0f;
+            float drawY = player.y - bodyBob;
+
+            Vector2 hipCenter = { player.x + 8, drawY + 28 };
+            Vector2 shoulderCenter = { player.x + 8, drawY + 14 };
+
+            Vector2 backFootPos, frontFootPos, backHandPos, frontHandPos;
+
+            if (player.onGround) {
+                backFootPos = { hipCenter.x + sinf(t1) * 12.0f, hipCenter.y + 20 - fmaxf(0.0f, cosf(t1) * 10.0f) };
+                frontFootPos = { hipCenter.x + sinf(t2) * 12.0f, hipCenter.y + 20 - fmaxf(0.0f, cosf(t2) * 10.0f) };
+                backHandPos = { shoulderCenter.x + sinf(t2) * 10.0f, shoulderCenter.y + 14 };
+                frontHandPos = { shoulderCenter.x + sinf(t1) * 10.0f, shoulderCenter.y + 14 };
+            }
+            else {
+                backFootPos = { hipCenter.x - 10.0f, hipCenter.y + 18.0f };
+                frontFootPos = { hipCenter.x - 4.0f, hipCenter.y + 22.0f };
+                backHandPos = { shoulderCenter.x - 8.0f, shoulderCenter.y + 10.0f };
+                frontHandPos = { shoulderCenter.x + 4.0f, shoulderCenter.y + 12.0f };
+            }
+
+            Color pantsDark = { 30, 40, 80, 255 };
+            Color pantsLight = { 50, 80, 180, 255 };
+            Color skinDark = { 180, 130, 90, 255 };
+            Color skinLight = { 220, 170, 120, 255 };
+
+            DrawCircleV(shoulderCenter, 4.0f, skinDark);
+            DrawLineEx(shoulderCenter, backHandPos, 7.0f, skinDark);
+
+            DrawCircleV(hipCenter, 4.5f, pantsDark);
+            DrawLineEx(hipCenter, backFootPos, 8.0f, pantsDark);
+            DrawRectangleRounded({ backFootPos.x - 4, backFootPos.y - 2, 12, 6 }, 0.5f, 4, DARKGRAY);
+
+            DrawRectangleRounded({ player.x - 16, drawY + 12, 6, 20 }, 0.4f, 5, GRAY);
+            DrawRectangleRounded({ player.x - 14, drawY + 8, 14, 28 }, 0.4f, 5, LIGHTGRAY);
+            DrawRectangleRounded({ player.x - 2, drawY + 10, 20, 22 }, 0.4f, 5, BLUE);
+
+            DrawCircle((int)(player.x + 10), (int)(drawY + 2), 12, WHITE);
+            DrawRectangleRounded({ player.x + 4, drawY - 2, 14, 8 }, 0.5f, 5, BEIGE);
+            DrawRectangleRounded({ player.x + 10, drawY, 10, 4 }, 0.5f, 2, BLACK);
+
+            DrawCircleV(hipCenter, 4.5f, pantsLight);
+            DrawLineEx(hipCenter, frontFootPos, 8.0f, pantsLight);
+            DrawRectangleRounded({ frontFootPos.x - 4, frontFootPos.y - 2, 12, 6 }, 0.5f, 4, DARKGRAY);
+
+            DrawCircleV(shoulderCenter, 4.0f, skinLight);
+            DrawLineEx(shoulderCenter, frontHandPos, 7.0f, skinLight);
+
+            if (player.isThrusting && !isPaused) {
+                float nozzleX = player.x - 8;
+                float nozzleY = drawY + 38;
+                float pulseFast = sinf(timeTotal * 30.0f) * 2.0f;
+                float pulseSlow = sinf(timeTotal * 10.0f) * 5.0f;
+
+                DrawCircleGradient((int)nozzleX, (int)(nozzleY + 20 + pulseSlow), 18 + pulseFast, Fade(RED, 0.5f), Fade(ORANGE, 0.1f));
+                DrawRectangleRounded({ nozzleX - 12, nozzleY, 24, 40 + pulseSlow * 1.5f }, 0.6f, 8, Fade(ORANGE, 0.6f));
+                DrawRectangleRounded({ nozzleX - 8 + pulseFast / 2, nozzleY + 5, 16 - pulseFast, 30 + pulseSlow }, 0.5f, 8, Fade(YELLOW, 0.8f));
+                DrawCircleGradient((int)nozzleX, (int)(nozzleY + 5), 8 + pulseFast, WHITE, YELLOW);
+            }
+
+            DrawText(TextFormat("SCORE: %d", score), 20, 20, 35, WHITE);
+            DrawText("P: Pause", screenWidth - 120, 20, 20, LIGHTGRAY);
+
+            if (isPaused) {
+                DrawRectangle(0, 0, screenWidth, screenHeight, Fade(BLACK, 0.6f));
+                DrawText("PAUSED",
+                    screenWidth / 2 - MeasureText("PAUSED", 60) / 2,
+                    screenHeight / 2 - 40, 60, ORANGE);
+                DrawText("Press P to Resume",
+                    screenWidth / 2 - MeasureText("Press P to Resume", 20) / 2,
+                    screenHeight / 2 + 40, 20, LIGHTGRAY);
+            }
+
+            if (currentState == GAMEOVER) {
+                DrawRectangle(0, 0, screenWidth, screenHeight, Fade(BLACK, 0.7f));
+                DrawText("ZAPPED!",
+                    screenWidth / 2 - MeasureText("ZAPPED!", 60) / 2,
+                    200, 60, RED);
+                DrawText(TextFormat("High Score: %d", highScore),
+                    screenWidth / 2 - MeasureText(TextFormat("High Score: %d", highScore), 30) / 2,
+                    280, 30, GOLD);
+                DrawText("Press SPACE to Play Again",
+                    screenWidth / 2 - MeasureText("Press SPACE to Play Again", 20) / 2,
+                    350, 20, WHITE);
+            }
+        }
+
+        EndDrawing();
+    }
+
+    CloseWindow();
+    return 0;
+}
